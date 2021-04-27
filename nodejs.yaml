@@ -1,0 +1,77 @@
+---
+- hosts: all
+  pre_tasks:
+    - name: creates apps group
+      group: name=apps state=present
+    - name: create apps user
+      user: name=apps comment="Apps User" groups=apps home=/var/www/apps
+    - name: create node apps directory
+      file: path=/var/www/apps state=directory owner=apps group=apps mode=0775
+    - name: copy node app to apps directory
+      copy: src=./nodeapp dest=/var/www/apps owner=apps group=apps mode=0644 
+  roles:
+    - role: ansible-role-nvm
+
+    
+
+
+
+  tasks:
+
+    - name: Install pm2
+      npm: name=pm2 global=yes
+      environment:
+        #Replace with path given by whereis command in managed node
+        PATH: /home/ubuntu/.nvm/versions/node/v14.16.1/bin
+    #Install dependencies
+    - name: Running NPM install
+      npm: path=/var/www/apps
+      environment:
+        #Replace with path given by whereis command in managed node
+        PATH: /home/ubuntu/.nvm/versions/node/v14.16.1/bin
+    - name: install nginx
+      apt: name=nginx state=present update_cache=yes
+      become: yes
+      notify:
+       - start nginx
+    - name: configure nginx
+      copy: src=./files/nodeapp.conf dest=/etc/nginx/sites-available/
+      become: yes
+      notify:
+       - restart nginx
+    - name: create symlink
+      file:
+        src: /etc/nginx/sites-available/nodeapp.conf
+        dest: /etc/nginx/sites-enabled/default
+        state: link
+      become: yes
+      notify:
+       - restart nginx
+
+    - name: stop node apps
+      command: pm2 delete all
+      become: yes
+      become_user: apps
+      ignore_errors: yes
+      environment:
+        #Replace with path given by whereis command in managed node
+        PATH: /home/ubuntu/.nvm/versions/node/v14.16.1/bin
+    - name: start node apps
+      command: pm2 start app.js
+      become: yes
+      become_user: apps
+      args:
+        chdir: /var/www/apps/nodeapp
+      environment:
+        #Replace with path given by whereis command in managed node
+        PATH: /home/ubuntu/.nvm/versions/node/v14.16.1/bin
+
+  handlers:
+    - name: start nginx
+      service: name=nginx state=started
+      become: yes
+    - name: restart nginx
+      service: name=nginx state=restarted
+      become: yes
+    
+

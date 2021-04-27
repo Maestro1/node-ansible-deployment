@@ -1,0 +1,71 @@
+---
+- hosts: all
+  
+  vars:
+    pm2_cmds:
+      - run: delete
+        args: console_error
+        ignore_errors: yes
+    pm2_apps:
+      - run: app.js
+        path: /var/www/apps
+  roles:
+    - ansible-role-nvm 
+  pre_tasks:
+    - name: creates apps group
+      group: name=apps state=present
+    - name: create apps user
+      user: name=apps comment="Apps User" groups=apps home=/var/www/apps
+    - name: create node apps directory
+      file: path=/var/www/apps state=directory owner=apps group=apps mode=0775
+    - name: copy node app to apps directory
+      copy: src=./nodeapp dest=/var/www/apps owner=apps group=apps mode=0644 
+
+  become: yes
+  tasks:
+    - name: Install pm2
+      npm: name=pm2 global=yes
+      environment:
+        #Replace with path given by whereis command in managed node
+        PATH: /home/ubuntu/.nvm/versions/node/v14.16.1/bin
+    #Install dependencies
+    - name: Running NPM install
+      npm: path=/var/www/apps
+      environment:
+        #Replace with path given by whereis command in managed node
+        PATH: /home/ubuntu/.nvm/versions/node/v14.16.1/bin
+    
+    - name: install nginx
+      apt: name=nginx state=present update_cache=yes
+      notify:
+       - start nginx
+    - name: configure nginx
+      copy: src=./files dest=/etc/nginx/sites-available/
+      with_fileglob:
+       - ./nginx/*
+      notify:
+       - restart nginx
+
+    - name: stop node apps
+      command: pm2 delete all
+      become: yes
+      become_user: apps
+      ignore_errors: yes
+    - name: start node apps
+      command: pm2 start {{ item }}
+      become: yes
+      become_user: apps
+      with_items: pm2_apps
+    - name: installing startup script
+      command: pm2 startup ubuntu -u apps
+      environment:
+        HOME: /var/www/apps
+      notify:
+        - start pm2 
+  handlers:
+    - name: start nginx
+      service: name=nginx state=started
+    - name: restart nginx
+      service: name=nginx state=restarted
+    - name: start pm2
+      service: name=pm2-init.sh state=started
